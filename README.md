@@ -18,5 +18,3 @@ If you find our work helpful, please consider citing our work:
 }
 ```
 
-**Architecture**: 
-
