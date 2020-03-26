@@ -127,7 +127,7 @@ class DualLoss(nn.Module):
         self.epsilon = epsilon
         self.lmbda = lmbda
         self.channels = num_classes 
-        self.CELoss = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 4.0, 5.0, 1.0])).cuda()
+        self.CELoss = nn.CrossEntropyLoss().cuda()
         # self.CELoss = LabelSmoothSoftmaxCE()
         self.bce2d = nn.BCELoss().cuda()
         self.epoch = 1 
@@ -147,6 +147,7 @@ class DualLoss(nn.Module):
                              torch.where(edge.max(1)[0].cpu() > 0.8, target, filler).cuda().long())
 
     def forward(self, pred, target, epoch=0):
+        print(target)
         seg, edge_in = pred
         seg_t, edge_t = target
         #seg

@@ -4,9 +4,6 @@ import torch.nn.functional as F
 import torchvision
 import numpy as np
 from lib.nn import SynchronizedBatchNorm2d
-from smoothgrad import generate_smooth_grad
-from guided_backprop import GuidedBackprop
-from vanilla_backprop import VanillaBackprop
 from misc_functions import (get_example_params,
                             convert_to_grayscale,
                             save_gradient_images,
@@ -88,12 +85,32 @@ class SegmentationModuleBase(nn.Module):
             j3 = anb3.float() / (torch.sum(v3).float() + torch.sum(pred3).float() - anb3.float() + 1e-10)
         except:
             j3 = 0
+        
+        #class 3
+        v4 = (label == 4).long()
+        pred4 = (preds == 4).long()
+        anb4 = torch.sum(v4 * pred4)
+        try:
+            j4 = anb4.float() / (torch.sum(v4).float() + torch.sum(pred4).float() - anb4.float() + 1e-10)
+        except:
+            j4 = 0
+
+        #class 3
+        v5 = (label == 5).long()
+        pred5 = (preds == 5).long()
+        anb5 = torch.sum(v5 * pred5)
+        try:
+            j5 = anb5.float() / (torch.sum(v5).float() + torch.sum(pred5).float() - anb5.float() + 1e-10)
+        except:
+            j5 = 0
 
         j1 = j1 if j1 <= 1 else 0
         j2 = j2 if j2 <= 1 else 0
         j3 = j3 if j3 <= 1 else 0
+        j4 = j4 if j4 <= 1 else 0
+        j5 = j5 if j5 <= 1 else 0
 
-        jaccard = [j1, j2, j3]
+        jaccard = [j1, j2, j3, j4, j5]
         return acc, jaccard
 
     def jaccard(self, pred, label):
@@ -123,7 +140,8 @@ class SegmentationModule(SegmentationModuleBase):
         #inference
         else:
             p = self.unet(feed_dict['image'])
-            loss = self.crit((p[0], p[1]), (feed_dict['mask'][0].long().unsqueeze(0), feed_dict['mask'][1]))
+            #loss = self.crit((p[0], p[1]), (feed_dict['mask'][0].long().unsqueeze(0), feed_dict['mask'][1]))
+            loss = 0
             pred = nn.functional.softmax(p[0], dim=1)
             return pred, loss
 

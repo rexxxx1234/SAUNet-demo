@@ -8,11 +8,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 from scipy.io import loadmat
+import random
 import torch.utils.data as data
 import nibabel as nib
 # Our libs
 from data.augmentations import ComposeTest, PaddingCenterCropTest
-from data.test_loader import AC17Test as AC17
+from data.dataloader import LungData
 from models import ModelBuilder, SegmentationModule
 from utils import AverageMeter, colorEncode, accuracy, intersectionAndUnion
 from lib.nn import user_scattered_collate, async_copy_to
@@ -20,7 +21,6 @@ from lib.utils import as_numpy
 import lib.utils.data as torchdata
 import cv2
 from tqdm import tqdm
-from loss import DualLoss
 import random
 from PIL import Image, ImageOps
 from skimage import transform
@@ -76,16 +76,16 @@ def resample_to_orig(data, pred):
     return p_stack
 
 def visualize_result(data, pred, args):
-    (img, info) = data
+    img = data
 
     #normalize image to [0, 1] first.
     img = (img - img.min())/(img.max()-img.min())
     img = (img * 255).astype(np.uint8) #Then scale it up to [0, 255] to get the final image.
-    pred_img = (pred * 85).astype(np.uint8)
+    pred_img = (pred * 51).astype(np.uint8)
 
     #heat = get_heatmap(LRP)
     im_vis = np.concatenate((img, pred_img), axis=1).astype(np.uint8)
-    img_name = info.split('/')[-1] + '.png'
+    img_name = str(random.randrange(10000, 99999)) + '.png'
     cv2.imwrite(os.path.join(args.result,
                 img_name), im_vis)
 
@@ -105,28 +105,21 @@ def evaluate(sm, loader_val, args):
         batch_data = batch_data[0]
         batch_data["image"] = batch_data["image"].unsqueeze(0).cuda()
         torch.cuda.synchronize()
-        pred_volume = np.zeros_like(batch_data["image"][0][0].cpu())
-        for z in range(batch_data["image"].shape[-1]):
-            slice_data = {"image":batch_data["image"][:,:,:,:,z]}
-            tic = time.perf_counter()
-            with torch.no_grad():
-                feed_dict = batch_data.copy()
+        tic = time.perf_counter()
+        with torch.no_grad():
+            feed_dict = batch_data.copy()
 
-                # forward pass
-                p1 = sm(slice_data, epoch=0, segSize=True)
+            # forward pass
+            p1 = sm(feed_dict, epoch=0, segSize=True)
 
-                _, pred = torch.max(p1, dim=1)
-                pred = as_numpy(pred.squeeze(0).cpu())
-                pred_volume[:,:,z] = pred
+            _, pred = torch.max(p1, dim=1)
+            pred = as_numpy(pred.squeeze(0).cpu())
 
             time_meter.update(time.perf_counter() - tic)
-        pv_resized = resample_to_orig(batch_data, pred_volume)
-        save_as_nifti(pv_resized, args.save_test_path, batch_data["name"])
         if args.visualize:
-            for z in range(batch_data['orig'].shape[-1]):
-                visualize_result(
-                        (batch_data['orig'][:,:,z], batch_data["name"]+str(z)),
-                        pv_resized[:,:, z], args)
+            visualize_result(
+                    batch_data['orig'],
+                    pv_resized, args)
 
         torch.cuda.synchronize()
 
@@ -140,24 +133,22 @@ def main(args):
 
     unet = builder.build_unet(num_class=args.num_class,
         arch=args.arch_unet,
-        weights=args.weights_unet1)
+        weights=args.weights_unet)
 
-    crit = DualLoss(mode='val')
-
-    sm = SegmentationModule(crit, unet)
+    sm = SegmentationModule(None, unet)
     test_augs = ComposeTest([PaddingCenterCropTest(256)])
 
-    ac17 = AC17(
+    lungdata = LungData(
             root=args.data_root,
-            augmentations=test_augs,
-            img_norm=args.img_norm)
+            split='test', 
+            augmentations=test_augs)
 
     loader_val = data.DataLoader(
-        ac17,
+        lungdata,
         batch_size=1,
         shuffle=False,
         collate_fn=user_scattered_collate,
-        num_workers=5,
+        num_workers=0,
         drop_last=True)
 
     sm.cuda()
@@ -172,7 +163,7 @@ if __name__ == '__main__':
     assert LooseVersion(torch.__version__) >= LooseVersion('0.4.0'), \
         'PyTorch>=0.4.0 is required'
 
-    DATA_ROOT = os.getenv('DATA_ROOT', '/PATH/TO/AC17/DATA')
+    DATA_ROOT = os.getenv('DATA_ROOT', '/home/rexma/Desktop/MRI_Images/LCTSC')
 
     parser = argparse.ArgumentParser()
     # Model related arguments
@@ -180,13 +171,13 @@ if __name__ == '__main__':
                         help="a name for identifying the model to load")
     parser.add_argument('--unet', default=True,
                         help='Use a UNet?')
-    parser.add_argument('--arch_unet', default='albunet',
+    parser.add_argument('--arch_unet', default='saunet',
                         help='UNet architecture?')
 
     # Data related arguments
     parser.add_argument('--num_val', default=-1, type=int,
                         help='number of images to evalutate')
-    parser.add_argument('--num_class', default=4, type=int,
+    parser.add_argument('--num_class', default=6, type=int,
                         help='number of classes')
     parser.add_argument('--batch_size', default=1, type=int,
                         help='batchsize. current only supports 1')
